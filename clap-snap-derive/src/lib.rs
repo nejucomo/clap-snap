@@ -217,12 +217,19 @@ fn find_command_methods(app_ident: &syn::Ident) -> Vec<CommandMethod> {
 
     let mut methods = Vec::new();
     for file in files {
-        let Ok(contents) = fs::read_to_string(&file) else {
-            continue;
-        };
-        let Ok(parsed) = syn::parse_file(&contents) else {
-            continue;
-        };
+        let contents = fs::read_to_string(&file)
+            .unwrap_or_else(|e| {
+                panic!(
+                    "App derive could not read {} (ensure file permissions are correct): {e}",
+                    file.display()
+                )
+            });
+        let parsed = syn::parse_file(&contents).unwrap_or_else(|e| {
+            panic!(
+                "App derive encountered syntax error in {}: {e}",
+                file.display()
+            )
+        });
 
         find_methods_in_items(app_ident, &parsed.items, &mut methods);
     }
@@ -274,7 +281,7 @@ fn collect_methods_from_impl(
         }
 
         let mut inputs = method.sig.inputs.iter();
-        let has_mut_receiver = matches!(inputs.next(), Some(FnArg::Receiver(recv)) if recv.reference.is_some() && recv.mutability.is_some());
+        let has_mut_receiver = has_mut_self_receiver(inputs.next());
         if !has_mut_receiver {
             continue;
         }
@@ -312,6 +319,13 @@ fn collect_methods_from_impl(
 fn is_command_attr(attr: &syn::Attribute) -> bool {
     let segments = &attr.path().segments;
     segments.last().is_some_and(|seg| seg.ident == "command")
+}
+
+fn has_mut_self_receiver(input: Option<&FnArg>) -> bool {
+    matches!(
+        input,
+        Some(FnArg::Receiver(recv)) if recv.reference.is_some() && recv.mutability.is_some()
+    )
 }
 
 fn collect_rs_files(dir: &Path, out: &mut Vec<PathBuf>) {
